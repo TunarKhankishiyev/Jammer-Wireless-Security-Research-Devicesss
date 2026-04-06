@@ -10,7 +10,6 @@ This device was built and tested **exclusively in isolated, controlled lab envir
 
 ---
 
-
 ## ⚙️ Capabilities & Features
 
 - **Full-spectrum interference** across Wi-Fi (2.4 GHz), Bluetooth Classic, BLE, Zigbee, and RC bands
@@ -37,32 +36,201 @@ Key areas explored:
 - **Spoofing surface** — What information is exposed during passive beacon/advertisement scanning, and how is it exploited?
 
 ---
+
 ## 🔧 Hardware Architecture
 
 | Component | Role |
 |---|---|
 | **ESP32** | Main microcontroller — native dual-mode Wi-Fi + Bluetooth |
 | **NRF24L01+ × 3** | Parallel RF modules for multi-channel simultaneous coverage |
-| **OLED Display** | Real-time feedback: active mode, channel status, scan results |
-| **Physical Buttons** | On-device mode switching without serial dependency |
+| **OLED Display (SSD1306 128×64)** | Real-time feedback: active mode, channel status, scan results |
+| **NeoPixel LED** | Visual status indicator — color-coded per active mode/state |
+| **Physical Buttons (×4)** | On-device mode switching without serial dependency |
 | **Custom Enclosure** | Compact, portable case designed for lab use |
 
 Three NRF24L01+ modules run in parallel to cover multiple frequency channels simultaneously, enabling broad-spectrum signal analysis and generation without sequential scanning delays.
 
 ---
 
+## 🔌 Complete Pin Reference
+
+### SPI Bus (Shared across all NRF24L01+ modules)
+
+| Signal | ESP32 GPIO |
+|---|---|
+| SCK | GPIO 18 |
+| MISO | GPIO 19 |
+| MOSI | GPIO 23 |
+
+---
+
+### NRF24L01+ Module Assignments
+
+Three modules are wired independently on CE/CSN while sharing the SPI bus.
+
+| Module | CE Pin | CSN Pin | Used In |
+|---|---|---|---|
+| **Radio 1 / A** | GPIO 5 | GPIO 17 | Jammer, BLE Jammer, Blackout, Analyzer, Scanner |
+| **Radio 2 / B** | GPIO 16 | GPIO 4 | Jammer, BLE Jammer, Blackout |
+| **Radio 3 / C** | GPIO 15 | GPIO 2 | Jammer, BLE Jammer, Blackout |
+
+> **Note:** The Analyzer and Scanner modules use only Radio 1 (GPIO 5 / GPIO 17) in receive mode. The multi-radio parallel setup is leveraged exclusively in active jamming modes.
+
+---
+
+### Button Pin Assignments by Module
+
+Buttons serve different roles depending on the active firmware module. All buttons are configured as `INPUT_PULLUP` — active LOW on press.
+
+#### Wi-Fi Jammer (`jammer.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| BT1 | GPIO 33 | Cycle Wi-Fi channel (1–14) |
+| BT2 | GPIO 26 | Toggle jamming ON / OFF |
+| BT3 | GPIO 27 | Cycle data rate (250KBPS → 1MBPS → 2MBPS) |
+| BT4 | GPIO 25 | Cycle PA level (MIN → LOW → HIGH → MAX) |
+
+#### BLE / Bluetooth Jammer (`blejammer.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| MODE_BUTTON | GPIO 26 | Cycle mode: Deactive → BLE → Bluetooth |
+
+#### Blackout Multi-Protocol Jammer (`blackout.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| MODE_BUTTON | GPIO 25 | Navigate protocol left (WiFi → NRF24 → Zigbee…) |
+| MODE_BUTTON1 | GPIO 27 | Navigate protocol right |
+| MODE_BUTTON2 | GPIO 26 | Toggle active / deactive jamming |
+
+#### BLE Scanner (`blescan.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| BUTTON_PIN_UP | GPIO 26 | Scroll up through scanned device list |
+| BUTTON_PIN_DOWN | GPIO 33 | Scroll down through scanned device list |
+| BUTTON_PIN_SELECT | GPIO 27 | Open device detail view |
+| BUTTON_PIN_BACK | GPIO 25 | Return to device list from detail view |
+
+#### Wi-Fi Scanner (`wifiscan.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| BTN_PIN_UP | GPIO 26 | Scroll up through network list |
+| BTN_PIN_DOWN | GPIO 33 | Scroll down through network list |
+| BTN_PIN_SELECT | GPIO 27 | Open network detail view |
+| BTN_PIN_BACK | GPIO 25 | Return to network list |
+
+#### Apple Device Spoofer (`spoofer.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| deviceTypeNextPin | GPIO 27 | Next spoofed device type (AirPods, Beats, etc.) |
+| deviceTypePrevPin | GPIO 25 | Previous spoofed device type |
+| advTypeNextPin | GPIO 33 | Cycle BLE advertisement type (IND / SCAN / NONCONN) |
+| advControlPin | GPIO 26 | Toggle advertising ON / OFF |
+
+#### Settings Menu (`setting.cpp`)
+
+| Button | GPIO | Function |
+|---|---|---|
+| BUTTON_UP | GPIO 26 | Navigate menu up |
+| BUTTON_DOWN | GPIO 33 | Navigate menu down |
+| BUTTON_SELECT | GPIO 27 | Toggle / apply selected setting |
+
+---
+
+### Quick GPIO Summary
+
+| GPIO | Role |
+|---|---|
+| 2 | CSN — Radio 3 |
+| 4 | CSN — Radio 2 |
+| 5 | CE — Radio 1 |
+| 15 | CE — Radio 3 |
+| 16 | CE — Radio 2 |
+| 17 | CSN — Radio 1 |
+| 18 | SPI SCK |
+| 19 | SPI MISO |
+| 23 | SPI MOSI |
+| 25 | Button: Back / Prev / PA Level |
+| 26 | Button: Toggle / Control / Up |
+| 27 | Button: Select / Next / Data Rate |
+| 33 | Button: Down / Channels / Adv Type |
+
+---
+
+## 📦 Firmware Modules
+
+| Module | File | Description |
+|---|---|---|
+| **Wi-Fi Jammer** | `jammer.cpp` | 3-radio parallel Wi-Fi band jamming with adjustable channel, data rate, and PA level |
+| **BLE / BT Jammer** | `blejammer.cpp` | Targets BLE (ch 2, 26, 80) and Bluetooth Classic (21 channels) |
+| **Blackout** | `blackout.cpp` | Multi-protocol jammer — 8 selectable targets: WiFi, BLE, Bluetooth, Zigbee, RC, Video TX, USB Wireless, NRF24 |
+| **NRF24 Analyzer** | `analyzer.cpp` | 2.4 GHz channel activity visualizer across 128 channels using carrier detect |
+| **NRF24 Scanner** | `scanner.cpp` | Scrolling signal history graph with EEPROM persistence across power cycles |
+| **BLE Scanner** | `blescan.cpp` | Scans and lists nearby BLE devices with RSSI, name, and MAC address |
+| **Wi-Fi Scanner** | `wifiscan.cpp` | Scans and lists nearby 802.11 networks with SSID, BSSID, RSSI, and channel |
+| **Apple Spoofer** | `spoofer.cpp` | Spoofs 17 Apple/Beats device types via randomized BLE advertisements |
+| **Sour Apple** | `sourapple.cpp` | Generates rapid randomized Apple proximity pairing pop-up packets |
+| **Settings** | `setting.cpp` | OLED-based settings menu: NeoPixel enable/disable, OLED brightness (EEPROM-persisted) |
+| **NeoPixel** | `neopixel.cpp` | LED status indicator — color reflects active mode (red=jamming, purple=scanning, white=startup) |
+
+---
+
+### NeoPixel Status Colors
+
+| Color | Meaning |
+|---|---|
+| 🔴 Red | Jamming active |
+| 🟣 Purple | Channel scanning in progress |
+| ⚪ White | Startup / BLE scan indicator |
+| ⚫ Off | Idle / deactivated |
+
+---
+
+### Blackout Protocol Channel Map
+
+The Blackout module targets specific 2.4 GHz channels per protocol:
+
+| Protocol | Channels Targeted |
+|---|---|
+| Wi-Fi | 1–12 |
+| Bluetooth Classic | 0–2, 4, 6, 8, 22–30, 32–34, 46–52, 74–80 |
+| BLE | 2, 26, 80 |
+| USB Wireless | 40, 50, 60 |
+| Video Transmitter | 70, 75, 80 |
+| RC | 1, 3, 5, 7 |
+| Zigbee | 11, 15, 20, 25 |
+| NRF24 | 76, 78, 79 |
+
+---
+
+### Scanner EEPROM Layout
+
+| Address | Data |
+|---|---|
+| 0 | NeoPixel enabled flag |
+| 1 | OLED brightness value (0–255) |
+| 2–129 | NRF24 scanner graph history (128 bytes) |
+
+The scanner saves its rolling signal history graph to EEPROM every **5 seconds**, so the waveform survives power cycles.
+
+---
+
 ## 🛠️ Tech Stack & Concepts
 
 ```
-Hardware       ESP32 · NRF24L01+ (×3) · OLED SSD1306 · Custom PCB layout
+Hardware       ESP32 · NRF24L01+ (×3) · OLED SSD1306 128×64 · NeoPixel LED · Custom PCB layout
 Protocols      IEEE 802.11 (Wi-Fi) · Bluetooth Classic · BLE · Zigbee · 433/915 MHz RC
-Firmware       Embedded C/C++ · Arduino framework · SPI bus management
-Concepts       RF Interference · Spread Spectrum · FHSS · Signal Spoofing
+Firmware       Embedded C/C++ · Arduino framework · SPI bus management · EEPROM persistence
+Concepts       RF Interference · Spread Spectrum · FHSS · Signal Spoofing · Carrier Detection
 Security       Wireless Protocol Analysis · Deauth Attacks · Beacon Flooding · Defensive Countermeasures
 ```
 
-
-
+---
 
 ## 🔬 Setup & Usage
 
@@ -72,27 +240,41 @@ Security       Wireless Protocol Analysis · Deauth Attacks · Beacon Flooding �
 
 - Arduino IDE or PlatformIO
 - ESP32 board package installed
-- Libraries: `Adafruit SSD1306`, `RF24`, `WiFi.h`
-<img width="480" height="723" alt="1_g" src="https://github.com/user-attachments/assets/3b59fafc-c3af-43e5-854f-ce039c1b3a3c" />
+- Libraries: `U8g2`, `RF24`, `Adafruit_NeoPixel`, `WiFi.h`, `BLEDevice`
 
 ### Hardware Wiring
 
-| NRF24L01+ Pin | ESP32 Pin |
+#### SPI Bus
+
+| Signal | ESP32 GPIO |
 |---|---|
-| VCC | 3.3V |
-| GND | GND |
-| CE | GPIO 4 / 16 / 17 (×3 modules) |
-| CSN | GPIO 5 / 15 / 21 (×3 modules) |
 | SCK | GPIO 18 |
-| MOSI | GPIO 23 |
 | MISO | GPIO 19 |
+| MOSI | GPIO 23 |
+
+#### NRF24L01+ Modules
+
+| Module | CE | CSN | VCC | GND |
+|---|---|---|---|---|
+| Radio 1 | GPIO 5 | GPIO 17 | 3.3V | GND |
+| Radio 2 | GPIO 16 | GPIO 4 | 3.3V | GND |
+| Radio 3 | GPIO 15 | GPIO 2 | 3.3V | GND |
+
+#### Buttons
+
+| GPIO | Function |
+|---|---|
+| GPIO 25 | Back / Prev / PA Level |
+| GPIO 26 | Toggle / Up / Control |
+| GPIO 27 | Select / Next / Data Rate |
+| GPIO 33 | Down / Channel / Adv Type |
 
 ---
 
 ## 📸 Hardware
 
+<img width="480" height="723" alt="1_g" src="https://github.com/user-attachments/assets/3b59fafc-c3af-43e5-854f-ce039c1b3a3c" />
 <img width="480" height="723" alt="3_g" src="https://github.com/user-attachments/assets/4f6394e8-0bf5-4dcd-b61e-93911154b23c" />
-
 
 ---
 
